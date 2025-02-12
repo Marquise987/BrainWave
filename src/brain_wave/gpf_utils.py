@@ -22,4 +22,8 @@ def get_gpd_codes(lesson_code):
     domain = tokens[1][0]
     construct = tokens[1]
     subconstruct = tokens[1] + "." + tokens[2]
-    return grade, domain, construct, subconstruct, skill, index
+    
+    construct_domain = tokens[1][0] + tokens[1][1:]  # Construct with the domain attached
+    subconstruct_with_domain = tokens[1][0] + "." + tokens[2]  # Subconstruct with domain prepended
+
+    return grade, domain, construct, subconstruct, skill, index, construct_domain, subconstruct_with_domain
