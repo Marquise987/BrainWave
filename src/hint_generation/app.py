@@ -27,6 +27,17 @@ def question_selectbox_changed():
         st.session_state.incorrect_answer_text_input = selected.incorrect_answer
         st.session_state.correct_answer_text_input = selected.answer
         st.session_state.lesson_text_area = selected.lesson_trimmed
+        
+         # Optionally fill more fields if they exist in the dataframe
+        if 'explanation' in selected and not pd.isna(selected.explanation):
+            st.session_state.explanation_text_area = selected.explanation
+        
+        if 'hint' in selected and not pd.isna(selected.hint):
+            st.session_state.hint_text_area = selected.hint
+
+        # Optionally log to debug or give user feedback
+        print(f"[DEBUG] Loaded question: {selected.display_name}")
+        print(f"[DEBUG] Lesson: {selected.lesson_trimmed[:50]}...")
 
 
 def hint_chat_input_changed():
