@@ -240,3 +240,92 @@ class DbInfo:
         # note this will underestimate the true number of tokens, due to whatever parent_join_string is
         n_tokens = n_tokens_rows.sum()
         return text, n_tokens, new_used_inds
+
+    def get_parent_text(self, ind: int, token_budget: int):
+        """
+        Intuition of "parent document" retriever is to retrieve for inclusion in a prompt the "parent" document,
+        similar to including docs on either "side" as additional context.
+
+        Read more: https://python.langchain.com/docs/modules/data_connection/retrievers/parent_document_retriever
+
+        Args:
+            ind (int): Most semantically relevant index to retrieve parents of.
+        """
+        df = self.db.df
+        row = df.iloc[ind]
+        and_cond = np.ones(len(df), dtype=bool)
+        for col in self.parent_group_cols:
+            cond = df[col] == row[col]
+            and_cond = np.logical_and(and_cond, cond)
+        parent = df[and_cond]
+        if self.parent_sort_cols is not None and len(self.parent_sort_cols) > 1:
+            parent = parent.sort_values(by=self.parent_sort_cols)
+        # include a variable amount of context based on the given token_budget
+        # preference ranking implemented here:
+        #  - all docs
+        #  - up to token_budget docs from target_ind - 0
+        total_tokens = parent[self.db.n_tokens_col].sum()
+        # new code start
+        if row[self.db.n_tokens_col] > token_budget:
+            # Return empty text and zero tokens if the row exceeds the budget
+            return "", 0, set()
+        # new code end
+        elif total_tokens <= token_budget:
+            # simple case: if all tokens in budget, no extra work
+            rows = parent
+        else:
+            target_ind_val = df.index[ind]
+            before = parent.loc[:target_ind_val]
+            # see: https://stackoverflow.com/a/37872823
+            cumulative_token_counts = before.loc[::-1, self.db.n_tokens_col].cumsum()[::-1]
+            rows = before[cumulative_token_counts <= token_budget]
+            # new code start
+            # Verify that the selected rows do not exceed the token budget
+            selected_tokens = rows[self.db.n_tokens_col].sum()
+            assert selected_tokens <= token_budget, f"Selected tokens {selected_tokens} exceed budget {token_budget}"
+            # new code end
+        assert len(rows) >= 1
+        new_used_inds = {df.index.get_loc(new_ind) for new_ind in rows.index}
+        assert ind in new_used_inds
+        texts = rows[self.db.embed_col]
+        n_tokens_rows = rows[self.db.n_tokens_col]
+        text = self.parent_join_string.join(texts)
+        # note this will underestimate the true number of tokens, due to whatever parent_join_string is
+        n_tokens = n_tokens_rows.sum()
+        return text, n_tokens, new_used_inds
+
+    def get_fill_string_from_distances(self, distances: np.array) -> str:
+        """Given distances to the texts within the RetrievalDb, create an appropriate fill string.
+
+        Args:
+            distances (np.array): Distances, where closer texts in the RetrievalDb are more relevant.
+
+        Returns:
+            str: The string to include in the prompt.
+        """
+        sort_inds = get_distance_sort_indices(distances)
+        used_inds = set()
+        texts = []
+        total_tokens = 0
+        for ind in sort_inds:
+            if ind in used_inds:
+                continue
+            if self.use_parent_text:
+                token_budget = self.max_tokens - total_tokens
+                # new code start
+                text, n_tokens, new_used_inds = self.get_parent_text(ind, token_budget)
+                if not text.strip():  # Skip empty text
+                    continue
+                # new code end
+                used_inds.update(new_used_inds)
+            else:
+                text, n_tokens = self.get_single_text(ind)
+                used_inds.add(ind)
+            if total_tokens + n_tokens > self.max_tokens:
+                break
+            total_tokens += n_tokens
+            texts.append(text)
+            if len(texts) >= self.max_texts:
+                break
+        fill_string = self.prefix + self.join_string.join(texts) + self.suffix
+        return fill_string
