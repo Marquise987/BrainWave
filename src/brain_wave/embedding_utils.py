@@ -70,3 +70,63 @@ def batch_embed_texts(input_text_list: list[str], n_tokens_list: list[int]) -> l
     if len(texts) > 0:
         embedding_list.extend(get_openai_embeddings(texts, EMBEDDING_MODEL))
     return embedding_list
+
+def cosine_similarity(embedding1: np.array, embedding2: np.array) -> float:
+    """Calculate cosine similarity between two embeddings.
+    
+    Args:
+        embedding1 (np.array): First embedding vector
+        embedding2 (np.array): Second embedding vector
+        
+    Returns:
+        float: Cosine similarity score between -1 and 1
+    """
+    return np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))
+
+
+def find_most_similar(query_embedding: np.array, corpus_embeddings: list[np.array]) -> tuple[int, float]:
+    """Find the most similar embedding in corpus to the query embedding.
+    
+    Args:
+        query_embedding (np.array): Embedding vector to compare against
+        corpus_embeddings (list[np.array]): List of embedding vectors to search
+        
+    Returns:
+        tuple[int, float]: Index of most similar embedding and its similarity score
+    """
+    similarities = [cosine_similarity(query_embedding, emb) for emb in corpus_embeddings]
+    max_index = np.argmax(similarities)
+    return max_index, similarities[max_index]
+
+
+def normalize_embeddings(embeddings: list[np.array]) -> list[np.array]:
+    """Normalize embeddings to unit length for more efficient similarity calculations.
+    
+    Args:
+        embeddings (list[np.array]): List of embedding vectors
+        
+    Returns:
+        list[np.array]: Normalized embeddings
+    """
+    return [emb / np.linalg.norm(emb) for emb in embeddings]
+
+
+def batch_similarity_search(query_text: str, corpus_texts: list[str]) -> tuple[int, float]:
+    """Perform end-to-end similarity search between query text and corpus texts.
+    
+    Args:
+        query_text (str): Text to search for
+        corpus_texts (list[str]): Texts to search against
+        
+    Returns:
+        tuple[int, float]: Index of most similar text and its similarity score
+    """
+    # Get embeddings
+    query_embedding = get_openai_embeddings([query_text])[0]
+    corpus_embeddings = get_openai_embeddings(corpus_texts)
+    
+    # Normalize for efficient comparison
+    query_embedding = query_embedding / np.linalg.norm(query_embedding)
+    corpus_embeddings = normalize_embeddings(corpus_embeddings)
+    
+    return find_most_similar(query_embedding, corpus_embeddings)
